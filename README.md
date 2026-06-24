@@ -1,0 +1,2 @@
+# Computational-analysis-of---and--cation-interactions-in-protein-RNA-complexes
+I analyzed 400+ protein–RNA complex structures from the PDB to study π-π and π-cation interactions. I used Python, Biopython, Pandas, and NumPy to automate data extraction, filtering, and analysis. I applied NeighborSearch and KD Tree algorithms to identify interaction patterns and generate statistical reports from large structural datasets.
