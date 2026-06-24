@@ -1,0 +1,330 @@
+#Downloading PDB files
+
+from Bio.PDB import PDBList
+import os
+
+# List of PDB IDs
+pdb_ids = [
+    "1B7F", "1CVJ", "1DRZ", "1H2C", "1HC8", "1JID", "1K8W", "1YTY",
+    "2BX2", "2JLW", "2X1A", "2XGJ", "2XZO", "3AVT", "3FHT", "3GIB", "3L25",
+    "3NNH", "3RW6", "4E78", "4ED5", "4F3T", "4N48", "4NGB", "4PKD", "4TV0",
+    "4YOE", "5AOR", "5DEA", "5DNO", "5GXH", "5L2L", "5WTK", "5WWE", "6DCB",
+    "6O5F", "6X1B", "6XLV"
+]
+
+# Create directory for PDB files
+pdb_dir = "D_1_2_3"
+os.makedirs(pdb_dir, exist_ok=True)
+
+# Download PDB files
+pdbl = PDBList()
+for pdb_id in pdb_ids:
+    pdbl.retrieve_pdb_file(pdb_id, pdir=pdb_dir, file_format="pdb")
+
+print("✅ All PDB files downloaded to the 'pdb_files' folder.")
+
+---------------------------------------------------------------------------------------------------
+# Changing file type to .pdb
+
+import os
+
+# Define the PDB directory
+PDB_DIR = "D_1_2_3"
+
+for filename in os.listdir(PDB_DIR):
+    if filename.endswith(".ent"):
+        old_path = os.path.join(PDB_DIR, filename)
+        new_path = os.path.join(PDB_DIR, filename.replace(".ent", ".pdb"))
+        os.rename(old_path, new_path)
+        print(f"✅ Renamed: {filename} → {filename.replace('.ent', '.pdb')}")
+
+print("\n🎉 All .ent files renamed to .pdb!")
+
+-----------------------------------------------------------------------------------------------------------------------------
+
+# Code for mapping mol_id and chains
+
+import os
+
+def extract_mol_id_chain_mapping(pdb_file):
+    """
+    Extracts mol_id (entity ID) and chain mapping from the PDB file using COMPND records.
+    Returns a dictionary mapping entity IDs to chain lists and another mapping chains to entity IDs.
+    """
+    mol_id_chain_map = {}  # {mol_id: [chain1, chain2, ...]}
+    chain_entity_map = {}  # {chain: mol_id}
+    
+    with open(pdb_file, 'r') as file:
+        mol_id = None
+        for line in file:
+            if line.startswith("COMPND"):
+                line = line.strip()
+                
+                # Extract MOL_ID
+                if "MOL_ID:" in line:
+                    try:
+                        mol_id = line.split("MOL_ID:")[1].strip().strip(";")
+                        mol_id_chain_map[mol_id] = []
+                    except IndexError:
+                        print(f"⚠️ Warning: Issue parsing MOL_ID in line -> {line}")
+
+                # Extract CHAIN and map to MOL_ID
+                elif "CHAIN:" in line and mol_id:
+                    try:
+                        chains = [ch.strip() for ch in line.split("CHAIN:")[1].strip().strip(";").split(",")]
+                        mol_id_chain_map[mol_id].extend(chains)
+                        for chain in chains:
+                            chain_entity_map[chain] = mol_id  # Map each chain to its entity
+                    except IndexError:
+                        print(f"⚠️ Warning: Issue parsing CHAIN in line -> {line}")
+
+    # Debugging Output
+    print("\n🔹 **Extracted MOL_ID to Chains Mapping:**")
+    for mol, chains in mol_id_chain_map.items():
+        print(f"  MOL_ID {mol}: Chains -> {', '.join(chains)}")
+
+    print("\n🔹 **Extracted Chain to MOL_ID Mapping:**")
+    for chain, mol in chain_entity_map.items():
+        print(f"  Chain {chain} → MOL_ID {mol}")
+
+    return mol_id_chain_map, chain_entity_map
+
+# Example usage
+PDB_FOLDER = "D_1"
+pdb_files = [f for f in os.listdir(PDB_FOLDER) if f.endswith(".pdb")]
+
+for pdb_file in pdb_files:
+    pdb_path = os.path.join(PDB_FOLDER, pdb_file)
+    print(f"\n🔹 **Parsing {pdb_file}**")
+    
+    mol_id_map, chain_map = extract_mol_id_chain_mapping(pdb_path)
+
+    # Extra Debugging: Check if any chains are still unknown
+    for chain, mol in chain_map.items():
+        if mol == "Unknown":
+            print(f"⚠️ Warning: Chain {chain} has UNKNOWN MOL_ID in {pdb_file}")
+
+------------------------------------------------------------------------------------------------------------------------
+
+# Code for π-π and π-cation-interactions
+
+import os
+import Bio.PDB
+import pandas as pd
+import numpy as np
+
+# Interaction distance cutoffs
+PI_PI_CUTOFF = (3.5, 5.0)  # π-π interaction range
+PI_CATION_CUTOFF = (4.5, 6.0)  # π-Cation interaction range
+
+# Residue classifications
+AROMATIC_RESIDUES = {'PHE', 'TYR', 'TRP', 'HIS'}
+CATIONIC_RESIDUES = {'LYS', 'ARG', 'HIS'}
+NUCLEOTIDE_TYPES = {'A', 'U', 'G', 'C', 'DA', 'DC', 'DT', 'DG'}
+
+# π-System atoms
+PI_SYSTEM_ATOMS = {
+    'PHE': ['CG', 'CD1', 'CD2', 'CE1', 'CE2', 'CZ'],
+    'TYR': ['CG', 'CD1', 'CD2', 'CE1', 'CE2', 'CZ'],
+    'TRP': ['CG', 'CD1', 'CD2', 'NE1', 'CE2', 'CE3', 'CZ2', 'CZ3', 'CH2'],
+    'HIS': ['CG', 'ND1', 'CD2', 'CE1', 'NE2'],
+    'A': ['N1', 'C2', 'N3', 'C4', 'C5', 'C6', 'N7', 'C8', 'N9'],
+    'U': ['N1', 'C2', 'N3', 'C4', 'C5', 'C6'],
+    'G': ['N1', 'C2', 'N3', 'C4', 'C5', 'C6', 'N7', 'C8', 'N9'],  
+    'C': ['N1', 'C2', 'N3', 'C4', 'C5', 'C6'],  
+    'DA': ['N1', 'C2', 'N3', 'C4', 'C5', 'C6', 'N7', 'C8', 'N9'],
+    'DT': ['N1', 'C2', 'N3', 'C4', 'C5', 'C6'],  
+    'DC': ['N1', 'C2', 'N3', 'C4', 'C5', 'C6'],  
+    'DG': ['N1', 'C2', 'N3', 'C4', 'C5', 'C6', 'N7', 'C8', 'N9'],  
+    'LYS': ['NZ'],
+    'ARG': ['NH1', 'NH2'],  
+}
+
+def extract_mol_id_chain_mapping(pdb_file):
+    """Extracts mol_id (entity ID) and chain mapping from a PDB file."""
+    mol_id_chain_map = {}
+    chain_entity_map = {}
+
+    with open(pdb_file, 'r') as file:
+        mol_id = None
+        for line in file:
+            if line.startswith("COMPND"):
+                line = line.strip()
+                
+                if "MOL_ID:" in line:
+                    mol_id = line.split("MOL_ID:")[1].strip().strip(";")
+                    mol_id_chain_map[mol_id] = []
+
+                elif "CHAIN:" in line and mol_id:
+                    chains = [ch.strip() for ch in line.split("CHAIN:")[1].strip().strip(";").split(",")]
+                    mol_id_chain_map[mol_id].extend(chains)
+                    for chain in chains:
+                        chain_entity_map[chain] = mol_id  
+
+    for chain in chain_entity_map:
+        if chain_entity_map[chain] == "":
+            chain_entity_map[chain] = "1"
+    
+    return mol_id_chain_map, chain_entity_map
+
+def get_pi_atoms(residue):
+    """Return a list of π-system atoms in a residue."""
+    resname = residue.get_resname()
+    return [atom for atom in residue if atom.get_name() in PI_SYSTEM_ATOMS.get(resname, [])]
+
+def detect_pi_interactions(pdb_file, chain_map):
+    """Detects π-π and π-cation interactions between nucleotides and amino acid residues."""
+    parser = Bio.PDB.PDBParser(QUIET=True)
+    structure = parser.get_structure(pdb_file[:-4], pdb_file)
+
+    # Store residues and their π-system atoms together
+    residue_atoms_map = {}
+
+    for model in structure:
+        for chain in model:
+            for residue in chain:
+                if residue.get_resname() in AROMATIC_RESIDUES | CATIONIC_RESIDUES | NUCLEOTIDE_TYPES:
+                    pi_atoms = get_pi_atoms(residue)
+                    if pi_atoms:
+                        residue_atoms_map[residue] = pi_atoms
+
+    # Flatten all atoms for NeighborSearch
+    all_pi_atoms = [atom for atoms in residue_atoms_map.values() for atom in atoms]
+    ns = Bio.PDB.NeighborSearch(all_pi_atoms)
+
+    interactions = []
+    seen_pairs = set()
+
+    for res1, atoms1 in residue_atoms_map.items():
+        chain1, resname1, resnum1 = res1.get_parent(), res1.get_resname(), res1.get_id()[1]
+        mol_id1 = chain_map.get(chain1.get_id(), "1")
+
+        for atom1 in atoms1:
+            # Find nearby atoms using NeighborSearch
+            nearby_atoms = ns.search(atom1.coord, PI_CATION_CUTOFF[1], level='A')
+
+            for atom2 in nearby_atoms:
+                res2 = atom2.get_parent()
+                if res1 == res2:
+                    continue  # Skip self-interactions
+
+                chain2, resname2, resnum2 = res2.get_parent(), res2.get_resname(), res2.get_id()[1]
+                mol_id2 = chain_map.get(chain2.get_id(), "1")
+
+                pair_key = frozenset([(resname1, resnum1, chain1.get_id(), atom1.get_name()),
+                                      (resname2, resnum2, chain2.get_id(), atom2.get_name())])
+
+                if pair_key in seen_pairs:
+                    continue
+                seen_pairs.add(pair_key)
+
+                # Compute minimum distance
+                dist = np.linalg.norm(atom1.coord - atom2.coord)
+
+                interaction_type = None
+                if PI_PI_CUTOFF[0] <= dist <= PI_PI_CUTOFF[1]:
+                    interaction_type = "π-π"
+                elif PI_CATION_CUTOFF[0] <= dist <= PI_CATION_CUTOFF[1]:
+                    interaction_type = "π-Cation"
+
+                if interaction_type:
+                    chain_interaction = "Intra-Chain" if chain1.get_id() == chain2.get_id() else "Inter-Chain"
+                    entity_interaction = "Intra-Entity" if mol_id1 == mol_id2 else "Inter-Entity"
+                    interactions.append([resname1, atom1.get_name(), chain1.get_id(), resnum1, mol_id1,
+                                         resname2, atom2.get_name(), chain2.get_id(), resnum2, mol_id2,
+                                         round(dist, 2), interaction_type, chain_interaction, entity_interaction])
+
+    df = pd.DataFrame(interactions, columns=["Res1", "Atom1", "Chain1", "ResNum1", "Mol_ID1",
+                                             "Res2", "Atom2", "Chain2", "ResNum2", "Mol_ID2",
+                                             "Distance (Å)", "Type", "Chain Interaction", "Entity Interaction"])
+    return df
+
+# Process all PDB files in the "D_1" folder
+pdb_folder = "D_1"
+
+for pdb_filename in os.listdir(pdb_folder):
+    if pdb_filename.endswith(".pdb"):
+        pdb_path = os.path.join(pdb_folder, pdb_filename)
+        print(f"\nProcessing {pdb_filename}...")
+
+        # Extract mol_id to chain mapping
+        mol_id_chain_map, chain_entity_map = extract_mol_id_chain_mapping(pdb_path)
+
+        # Print chain mapping
+        print("\n================================== Chain Mapping ==========================================")
+        for mol_id, chains in mol_id_chain_map.items():
+            print(f"Entity {mol_id}: Chains {', '.join(chains)}")
+
+        # Detect π interactions
+        interaction_df = detect_pi_interactions(pdb_path, chain_entity_map)
+
+        # Print interactions
+        print("\n================================= π-π and π-Cation Interactions ==================================")
+        print(interaction_df)
+        if df_interactions.empty:
+            print("No π-π or π-cation interactions found.")
+        else:
+            print(df_interactions.head(10).to_string(index=False))
+
+------------------------------------------------------------------------------------------------------------------------------------------
+# Total count of Interaction
+
+import pandas as pd
+import os
+import glob
+
+# Folder path containing the Excel files
+folder_path = "pi-pi"
+
+# Get all Excel files matching the required pattern
+excel_files = glob.glob(os.path.join(folder_path, "pdb*_pi_interactions_*.xlsx"))
+
+# Initialize list to store results
+results = []
+
+# Process each file
+for idx, file in enumerate(excel_files, start=1):
+    df = pd.read_excel(file)
+
+    # Strip spaces and standardize column names
+    df.columns = df.columns.str.strip()
+    df["Chain Interaction"] = df["Chain Interaction"].str.strip().str.lower()
+    df["Entity Interaction"] = df["Entity Interaction"].str.strip().str.lower()
+
+    # Extract PDB ID from filename
+    pdb_id = os.path.basename(file).split("_")[0]
+
+    # Count interactions
+    intra_count = df[(df["Chain Interaction"] == "intra-chain") & 
+                     (df["Entity Interaction"] == "intra-entity")].shape[0]
+
+    inter_count = df[((df["Chain Interaction"] == "inter-chain") & (df["Entity Interaction"] == "inter-entity")) | 
+                     ((df["Chain Interaction"] == "intra-chain") & (df["Entity Interaction"] == "inter-entity"))].shape[0]
+
+    interface_count = df[(df["Chain Interaction"] == "inter-chain") & 
+                         (df["Entity Interaction"] == "inter-entity")].shape[0]
+
+    total_count = intra_count + inter_count
+
+    # Append results
+    results.append([idx, pdb_id, intra_count, inter_count, interface_count, total_count])
+
+# Create a DataFrame to display results in tabular format
+result_df = pd.DataFrame(results, columns=["Sl. No", "PDB ID", "Intra", "Inter", "Interface", "Total"])
+
+# Save results in Excel format
+excel_output_path = os.path.join(folder_path, "interaction_counts_D.xlsx")
+result_df.to_excel(excel_output_path, index=False)
+
+# Save results in Text format
+text_output_path = os.path.join(folder_path, "interaction_counts_D.txt")
+with open(text_output_path, "w") as f:
+    f.write(result_df.to_string(index=False))
+
+# Print message
+print(f"Results saved in:\n- {excel_output_path}\n- {text_output_path}")
+
+# Print the table
+print(result_df.to_string(index=False))
+
+----------------------------------------------------------------------------------------------------------------------------
